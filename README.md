@@ -2,7 +2,7 @@
 
 193 个透明动作（待机、手势互动、礼仪致意、情绪反应、运动健身、武术格斗、龙族特性等）。 由 [hunmer/aboutme-pets](https://github.com/hunmer/aboutme-pets) 的 193 张透明 WebP 精灵图逐帧转码而来，保留原始帧数、时序与透明通道。
 
-<!-- upstream-commit: 0000000000000000000000000000000000000000 -->
+<!-- upstream-commit: d5a117c4264ca48786faacfec16e558e64625fbf -->
 
 <p align="center">
   <img src="preview/preview.gif" width="240" alt="GPT 桌宠 预览">
