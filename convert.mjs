@@ -267,22 +267,33 @@ async function preview() {
     return
   }
 
-  const filter = [
-    `crop=${width}:${height}:${x0}:${y0}`,
-    `scale=${side}:${side}:force_original_aspect_ratio=decrease:flags=lanczos`,
-    `pad=${side}:${side}:(ow-iw)/2:(oh-ih)/2:color=black@0`,
-    'format=rgba',
-    'split[source][palette-input]',
-    '[palette-input]palettegen=reserve_transparent=1:stats_mode=diff[palette]',
-    '[source][palette]paletteuse=alpha_threshold=128:dither=sierra2_4a',
-  ].join(',')
-
-  await runCapture(ffmpegPath(), [
-    '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
-    '-c:v', 'libvpx-vp9', '-i', idleWebm,
-    '-filter_complex', filter,
-    '-loop', '0', '-an', '-f', 'gif', target,
-  ], 'preview gif')
+  // Hosts cap preview GIFs at 8 MiB, so shrink the palette render until the
+  // file comfortably fits instead of relying on the animation staying small.
+  const MAX_PREVIEW_BYTES = 5 * 1024 * 1024
+  let scale = side
+  let gif
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const filter = [
+      `crop=${width}:${height}:${x0}:${y0}`,
+      `scale=${scale}:${scale}:force_original_aspect_ratio=decrease:flags=lanczos`,
+      `pad=${scale}:${scale}:(ow-iw)/2:(oh-ih)/2:color=black@0`,
+      'format=rgba',
+      'split[source][palette-input]',
+      '[palette-input]palettegen=reserve_transparent=1:stats_mode=diff[palette]',
+      '[source][palette]paletteuse=alpha_threshold=128:dither=sierra2_4a',
+    ].join(',')
+    await runCapture(ffmpegPath(), [
+      '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+      '-c:v', 'libvpx-vp9', '-i', idleWebm,
+      '-filter_complex', filter,
+      '-loop', '0', '-an', '-f', 'gif', target,
+    ], 'preview gif')
+    gif = readFileSync(target)
+    if (gif.length <= MAX_PREVIEW_BYTES)
+      break
+    scale = Math.round(scale * 0.85)
+  }
+  assert(gif.length <= 8 * 1024 * 1024, `preview.gif is ${gif.length} bytes, above the 8 MiB host limit`)
 
   // A single transparent PNG frame is handy for README headers and issue reports.
   await runCapture(ffmpegPath(), [
@@ -292,7 +303,6 @@ async function preview() {
     '-frames:v', '1', join(previewDir, 'idle.png'),
   ], 'preview png')
 
-  const gif = readFileSync(target)
   assert(gif.subarray(0, 6).toString('ascii').startsWith('GIF8'), 'preview must be a GIF')
   const gifWidth = gif.readUInt16LE(6)
   const gifHeight = gif.readUInt16LE(8)
