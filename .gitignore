@@ -1,0 +1,4 @@
+.upstream/
+.hevc-source/
+*.zip
+node_modules/

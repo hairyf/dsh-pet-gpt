@@ -1,0 +1,15 @@
+{
+  "id": "dsh-pet-gpt",
+  "kind": "dsh",
+  "displayName": "GPT 桌宠",
+  "description": "193 个透明动作的 GPT 桌宠，640×360 画布、12 fps，含透明待机动画。",
+  "configPath": "config.jsonc",
+  "uriPath": "webm",
+  "macUriPath": "mov",
+  "previewPath": "preview/preview.gif",
+  "ext": {
+    "default": "webm",
+    "mac": "mov"
+  },
+  "size": 220
+}

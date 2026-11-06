@@ -1,0 +1,128 @@
+name: sync-upstream
+
+# Weekly refresh of the spritesheet assets.
+#
+# 1. Pull the matching pet pack from hunmer/aboutme-pets.
+# 2. Re-encode every animation to VP9-alpha WebM, regenerate pet.json,
+#    config.jsonc and the square preview GIF.
+# 3. Encode HEVC-with-alpha MOV on macOS so WKWebView can play them.
+# 4. Verify every asset, then commit the result.
+
+on:
+  schedule:
+    # Mondays 03:17 UTC (11:17 Asia/Shanghai)
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Re-encode every animation instead of only missing ones
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: hunmer/aboutme-pets
+  UPSTREAM_PET: gpt
+  NODE_VERSION: '22'
+
+jobs:
+  sync:
+    runs-on: macos-14
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install FFmpeg
+        run: brew install ffmpeg
+
+      - name: Fetch the upstream spritesheets
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --filter=blob:none --sparse \
+            "https://github.com/${UPSTREAM_REPO}" "$RUNNER_TEMP/upstream"
+          git -C "$RUNNER_TEMP/upstream" sparse-checkout set "pets/${UPSTREAM_PET}"
+          echo "UPSTREAM_DIR=$RUNNER_TEMP/upstream" >> "$GITHUB_ENV"
+          git -C "$RUNNER_TEMP/upstream" rev-parse HEAD > "$RUNNER_TEMP/upstream-commit.txt"
+          echo "upstream revision: $(cat "$RUNNER_TEMP/upstream-commit.txt")"
+
+      - name: Rebuild WebM assets, config and preview
+        env:
+          FORCE: ${{ inputs.force && '1' || '0' }}
+        run: |
+          set -euo pipefail
+          node scripts/convert.mjs sync
+          node scripts/convert.mjs preview
+
+      - name: Fetch the pinned HEVC-with-alpha encoder
+        uses: actions/checkout@v4
+        with:
+          repository: PC2005-cloud/dsh-pet
+          ref: e1ff8c1e4001878cbb80441262d530e16541f138
+          path: .hevc-source
+          persist-credentials: false
+          sparse-checkout: scripts
+
+      - name: Compile the native encoder and alpha verifier
+        run: |
+          set -euo pipefail
+          xcrun swiftc -O -suppress-warnings \
+            -framework AVFoundation -framework CoreVideo -framework VideoToolbox \
+            .hevc-source/scripts/hevc_alpha_encoder.swift -o "$RUNNER_TEMP/hevc-alpha-encoder"
+          xcrun swiftc -O -suppress-warnings \
+            -framework AVFoundation -framework CoreVideo \
+            scripts/verify_alpha.swift -o "$RUNNER_TEMP/verify-alpha"
+          rm -rf .hevc-source
+
+      - name: Encode HEVC-with-alpha MOV
+        env:
+          ENCODER: ${{ runner.temp }}/hevc-alpha-encoder
+        run: python3 scripts/build_mov.py run
+
+      - name: Verify the package
+        env:
+          ALPHA_VERIFIER: ${{ runner.temp }}/verify-alpha
+        run: |
+          set -euo pipefail
+          node scripts/convert.mjs verify
+          python3 scripts/verify_mov.py
+
+      - name: Record the upstream revision
+        run: |
+          set -euo pipefail
+          revision=$(cat "$RUNNER_TEMP/upstream-commit.txt")
+          printf '%s\n' "$revision" > .upstream-commit
+          node --input-type=module -e "
+            import { readFileSync, writeFileSync } from 'node:fs'
+            const revision = readFileSync('.upstream-commit', 'utf8').trim()
+            const readme = readFileSync('README.md', 'utf8')
+            const marker = /<!-- upstream-commit: [0-9a-f]+ -->/
+            if (!marker.test(readme)) throw new Error('README.md is missing the upstream-commit marker')
+            writeFileSync('README.md', readme.replace(marker, '<!-- upstream-commit: ' + revision + ' -->'))
+          "
+
+      - name: Commit refreshed assets
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A pet.json config.jsonc webm mov preview .upstream-commit README.md
+          if git diff --cached --quiet; then
+            echo 'assets are already up to date'
+            exit 0
+          fi
+          git commit -m "chore: sync upstream ${UPSTREAM_REPO}@$(cut -c1-12 "$RUNNER_TEMP/upstream-commit.txt")"
+          git push origin HEAD:main
