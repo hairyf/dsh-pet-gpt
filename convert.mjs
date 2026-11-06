@@ -15,10 +15,10 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
-import { alphaStats, decodedRgba, encodeSheet, ffmpegPath, FRAME_BYTES, FRAME_HEIGHT, FRAME_RATE, FRAME_WIDTH, pool, probe, runCapture, unionBox, frameBoxes } from './lib/media.mjs'
-import { categoryOrder, categoryTitles, clickExclude, motionSlots, workStatus } from './lib/pools.mjs'
+import { alphaStats, decodedRgba, encodeSheet, ffmpegPath, FRAME_BYTES, FRAME_HEIGHT, FRAME_RATE, FRAME_WIDTH, pool, probe, runCapture, unionBox, frameBoxes } from './scripts/lib/media.mjs'
+import { categoryOrder, categoryTitles, clickExclude, motionSlots, workStatus } from './scripts/lib/pools.mjs'
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+const root = join(dirname(fileURLToPath(import.meta.url)))
 const upstream = process.env.UPSTREAM_DIR || join(root, '.upstream')
 const petDir = join(upstream, 'pets', 'gpt')
 const sheetDir = join(petDir, 'spritesheet')
@@ -284,12 +284,20 @@ async function preview() {
     '-loop', '0', '-an', '-f', 'gif', target,
   ], 'preview gif')
 
+  // A single transparent PNG frame is handy for README headers and issue reports.
+  await runCapture(ffmpegPath(), [
+    '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+    '-c:v', 'libvpx-vp9', '-i', idleWebm,
+    '-vf', `crop=${width}:${height}:${x0}:${y0}`,
+    '-frames:v', '1', join(previewDir, 'idle.png'),
+  ], 'preview png')
+
   const gif = readFileSync(target)
   assert(gif.subarray(0, 6).toString('ascii').startsWith('GIF8'), 'preview must be a GIF')
   const gifWidth = gif.readUInt16LE(6)
   const gifHeight = gif.readUInt16LE(8)
   assert.equal(gifWidth, gifHeight, 'preview must be square')
-  console.log(`preview ${idle}: ${gifWidth}x${gifHeight}, ${(gif.length / 1024).toFixed(0)} KiB, ${(gifFrames(gif) )} frames`)
+  console.log(`preview ${idle}: ${gifWidth}x${gifHeight}, ${(gif.length / 1024).toFixed(0)} KiB, ${gifFrames(gif)} frames, ${width}x${height} PNG`)
 }
 
 async function verify() {

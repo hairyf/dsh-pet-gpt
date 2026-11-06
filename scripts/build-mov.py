@@ -6,9 +6,9 @@ WKWebView; VP9 alpha WebM stays the Windows/Linux format. Encoding goes through
 AVAssetWriter, which only exists on macOS, so this script must run on a macOS
 runner (see .github/workflows/sync-upstream.yml):
 
-    python3 scripts/build_mov.py self-check     # host + asset sanity
-    python3 scripts/build_mov.py run            # encode every missing/stale MOV
-    python3 scripts/build_mov.py run --force    # re-encode everything
+    python3 scripts/build-mov.py self-check     # host + asset sanity
+    python3 scripts/build-mov.py run            # encode every missing/stale MOV
+    python3 scripts/build-mov.py run --force    # re-encode everything
 
 Environment:
     ENCODER        path to the compiled hevc-alpha helper (built from the
@@ -217,7 +217,7 @@ def main() -> None:
     elif command == "run":
         run("--force" in sys.argv[2:])
     else:
-        fail("usage: python3 scripts/build_mov.py self-check|run [--force]")
+        fail("usage: python3 scripts/build-mov.py self-check|run [--force]")
 
 
 if __name__ == "__main__":

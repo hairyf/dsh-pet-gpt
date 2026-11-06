@@ -22,22 +22,25 @@ https://github.com/hairyf/dsh-pet-gpt
 
 ```text
 dsh-pet-gpt/
-├── pet.json            # 宿主清单：id、显示名、webm/mov 目录、尺寸
-├── config.jsonc        # 动作配置：motions、clicks、分类与工作状态事件
-├── webm/               # 193 个 VP9-alpha WebM（Windows / Linux 播放）
-├── mov/                # 193 个 HEVC-alpha MOV（macOS / WKWebView 播放）
-├── preview/preview.gif # 方形透明 GIF 预览（由待机动画生成）
-└── scripts/            # 同步、编码与校验脚本
+├── pet.json              # 宿主清单：id、显示名、webm/mov 目录、尺寸
+├── config.jsonc          # 动作配置：motions、clicks、分类与工作状态事件
+├── convert.mjs           # 转码与校验入口（同步、预览、校验）
+├── webm/                 # 193 个 VP9-alpha WebM（Windows / Linux 播放）
+├── mov/                  # 193 个 HEVC-alpha MOV（macOS / WKWebView 播放）
+├── preview/
+│   ├── preview.gif       # 方形透明 GIF 预览（由待机动画生成）
+│   └── idle.png          # 待机首帧透明 PNG
+└── scripts/              # 素材库、动作映射与 macOS 编码/校验脚本
 ```
 
 ## 动作配置
 
 - `motions`：`idle`、`turn`、`moving-left`、`moving-right`、`dragging`、`waiting` 六个固定槽位。
-- `animations.clicks`：单击宠物时随机播放的 193 个动作（待机与移动动作除外，避免与固定槽位重复）。
+- `animations.clicks`：单击宠物时随机播放的 189 个动作（待机、移动、拖拽等固定槽位动作与待机重复项除外）。
 - `animations.categories`：按上游分类分组，全部 193 个动作都可点击播放。
 - `animations.events.workStatus`：保持上游六档顺序（思考、工作、结果、等待、完成、失败），每档三选一的动作池。
 
-改动作映射请编辑 `scripts/lib/pools.mjs` 后重新运行 `node scripts/convert.mjs sync`，`config.jsonc` 是生成产物。
+改动作映射请编辑 `scripts/lib/pools.mjs` 后重新运行 `node convert.mjs sync`，`config.jsonc` 是生成产物。
 
 ## 本地重建
 
@@ -46,17 +49,17 @@ dsh-pet-gpt/
 ```sh
 git clone --depth 1 --filter=blob:none --sparse https://github.com/hunmer/aboutme-pets .upstream
 git -C .upstream sparse-checkout set pets/gpt
-node scripts/convert.mjs sync      # 重新生成 webm/、pet.json、config.jsonc
-node scripts/convert.mjs preview   # 重新生成 preview/preview.gif
-node scripts/convert.mjs verify    # 校验帧数、时长、透明通道与引用完整性
+node convert.mjs sync      # 重新生成 webm/、pet.json、config.jsonc
+node convert.mjs preview   # 重新生成 preview/preview.gif
+node convert.mjs verify    # 校验帧数、时长、透明通道与引用完整性
 ```
 
 macOS 的 HEVC-alpha MOV 只能由 AVAssetWriter 产出，需在 macOS 上编译上游固定提交的编码器：
 
 ```sh
-python3 scripts/build_mov.py self-check
-ENCODER=/path/to/hevc-alpha-encoder python3 scripts/build_mov.py run
-ALPHA_VERIFIER=/path/to/verify-alpha python3 scripts/verify_mov.py
+python3 scripts/build-mov.py self-check
+ENCODER=/path/to/hevc-alpha-encoder python3 scripts/build-mov.py run
+ALPHA_VERIFIER=/path/to/verify-alpha python3 scripts/verify-mov.py
 ```
 
 Windows 上只能生成 WebM；`mov/` 由 CI 在 macOS runner 上补齐。

@@ -64,8 +64,8 @@ jobs:
           FORCE: ${{ inputs.force && '1' || '0' }}
         run: |
           set -euo pipefail
-          node scripts/convert.mjs sync
-          node scripts/convert.mjs preview
+          node convert.mjs sync
+          node convert.mjs preview
 
       - name: Fetch the pinned HEVC-with-alpha encoder
         uses: actions/checkout@v4
@@ -84,21 +84,21 @@ jobs:
             .hevc-source/scripts/hevc_alpha_encoder.swift -o "$RUNNER_TEMP/hevc-alpha-encoder"
           xcrun swiftc -O -suppress-warnings \
             -framework AVFoundation -framework CoreVideo \
-            scripts/verify_alpha.swift -o "$RUNNER_TEMP/verify-alpha"
+            scripts/verify-alpha.swift -o "$RUNNER_TEMP/verify-alpha"
           rm -rf .hevc-source
 
       - name: Encode HEVC-with-alpha MOV
         env:
           ENCODER: ${{ runner.temp }}/hevc-alpha-encoder
-        run: python3 scripts/build_mov.py run
+        run: python3 scripts/build-mov.py run
 
       - name: Verify the package
         env:
           ALPHA_VERIFIER: ${{ runner.temp }}/verify-alpha
         run: |
           set -euo pipefail
-          node scripts/convert.mjs verify
-          python3 scripts/verify_mov.py
+          node convert.mjs verify
+          python3 scripts/verify-mov.py
 
       - name: Record the upstream revision
         run: |
