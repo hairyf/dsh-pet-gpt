@@ -1,8 +1,8 @@
 {
   "id": "dsh-pet-gpt",
   "kind": "dsh",
-  "displayName": "GPT 桌宠",
-  "description": "193 个透明动作的 GPT 桌宠，640×360 画布、12 fps，含透明待机动画。",
+  "displayName": "Chat GPT",
+  "description": "自带 193 种百变萌态的‘龙娘’。头顶威严龙角、身着精致奇幻服饰，虽然偶尔会有点迷糊，但依然会安安静静地盘踞在你的屏幕边缘陪着你。",
   "configPath": "config.jsonc",
   "uriPath": "webm",
   "macUriPath": "mov",
