@@ -11,6 +11,7 @@
 
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -26,6 +27,21 @@ const webmDir = join(root, 'webm')
 const previewDir = join(root, 'preview')
 
 const WORK_STATUS_ORDER = ['thinking', 'working', 'result', 'waiting', 'success', 'error']
+
+// Committed provenance manifest. Encoding is skipped only when the upstream
+// spritesheet digest is unchanged, so an upstream re-render really does reach
+// webm/ - a plain "file exists" check would silently freeze the assets.
+const ASSETS = join(root, '.assets.json')
+
+function sha256(path) {
+  return createHash('sha256').update(readFileSync(path)).digest('hex')
+}
+
+function readAssets() {
+  if (!existsSync(ASSETS))
+    return { upstream: null, animations: {} }
+  return JSON.parse(readFileSync(ASSETS, 'utf8'))
+}
 
 function upstreamManifest() {
   const manifestFile = join(petDir, 'manifest.json')
@@ -168,19 +184,25 @@ function configJsonc(config, list) {
   return `${header}\n${JSON.stringify(config, null, 2)}\n`
 }
 
-function petJson(list) {
-  return JSON.stringify({
+function petJson() {
+  // pet.json is hand-maintained: displayName and description are authored copy,
+  // not generated. Only the structural fields the host contract depends on are
+  // enforced here, so a sync never clobbers a rewritten name or blurb.
+  const file = join(root, 'pet.json')
+  const current = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {}
+  const manifest = {
     id: 'dsh-pet-gpt',
     kind: 'dsh',
-    displayName: 'GPT 桌宠',
-    description: "193 个透明动作的 GPT 桌宠，640×360 画布、12 fps，含透明待机动画。",
+    displayName: current.displayName ?? 'GPT 桌宠',
+    description: current.description ?? '193 个透明动作的 GPT 桌宠，640×360 画布、12 fps，含透明待机动画。',
     configPath: 'config.jsonc',
     uriPath: 'webm',
     macUriPath: 'mov',
     previewPath: 'preview/preview.gif',
     ext: { default: 'webm', mac: 'mov' },
-    size: 220,
-  }, null, 2) + '\n'
+    size: current.size ?? 265,
+  }
+  return JSON.stringify(manifest, null, 2) + '\n'
 }
 
 async function convert() {
@@ -189,7 +211,20 @@ async function convert() {
   mkdirSync(webmDir, { recursive: true })
   assert.equal(readdirSync(sheetDir).filter((name) => name.endsWith('.webp')).length >= list.length, true)
 
-  const jobs = list.filter((item) => !existsSync(join(webmDir, `${item.name}.webm`)) || process.env.FORCE === '1')
+  const previous = readAssets()
+  const assets = { upstream: process.env.UPSTREAM_COMMIT || previous.upstream || null, animations: {} }
+  const jobs = []
+  for (const item of list) {
+    const target = join(webmDir, `${item.name}.webm`)
+    const sheetDigest = sha256(join(sheetDir, `${item.name}.webp`))
+    const known = previous.animations[item.name]
+    const stale = process.env.FORCE === '1' || !existsSync(target) || known === undefined
+      || known.sheet !== sheetDigest || known.frames !== item.frames || known.rows !== item.rows
+    if (stale)
+      jobs.push({ ...item, sheetDigest, known })
+    else
+      assets.animations[item.name] = { ...known, webm: sha256(target) }
+  }
   console.log(`${list.length} actions, ${jobs.length} to encode`)
 
   let done = 0
@@ -202,11 +237,20 @@ async function convert() {
     assert.equal(stream.codec_name, 'vp9', output)
     assert.equal(Number(stream.nb_read_frames), item.frames, `${output}: frame count changed`)
     void stream
+    assets.animations[item.name] = {
+      sheet: item.sheetDigest,
+      rows: item.rows,
+      frames: item.frames,
+      webm: sha256(output),
+      // A re-encoded webm invalidates any previous MOV; CI re-encodes it.
+      mov: null,
+    }
     done += 1
     console.log(`[${done}/${jobs.length}] ${item.name} (${item.frames}f, ${(statSync(output).size / 1024).toFixed(0)} KiB)`)
   }, Number(process.env.JOBS || 0) || Math.max(1, (await import('node:os')).cpus().length - 1))
 
-  writeFileSync(join(root, 'pet.json'), petJson(list))
+  writeFileSync(ASSETS, JSON.stringify(assets, null, 1) + '\n')
+  writeFileSync(join(root, 'pet.json'), petJson())
   writeFileSync(join(root, 'config.jsonc'), configJsonc(config, list))
   console.log(`encoded ${jobs.length} animations in ${((Date.now() - started) / 1000).toFixed(0)}s`)
 }

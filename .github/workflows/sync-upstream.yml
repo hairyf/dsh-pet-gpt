@@ -50,6 +50,7 @@ jobs:
         run: brew install ffmpeg
 
       - name: Fetch the upstream spritesheets
+        id: upstream
         run: |
           set -euo pipefail
           git clone --depth 1 --filter=blob:none --sparse \
@@ -57,11 +58,13 @@ jobs:
           git -C "$RUNNER_TEMP/upstream" sparse-checkout set "pets/${UPSTREAM_PET}"
           echo "UPSTREAM_DIR=$RUNNER_TEMP/upstream" >> "$GITHUB_ENV"
           git -C "$RUNNER_TEMP/upstream" rev-parse HEAD > "$RUNNER_TEMP/upstream-commit.txt"
+          echo "revision=$(cat "$RUNNER_TEMP/upstream-commit.txt")" >> "$GITHUB_OUTPUT"
           echo "upstream revision: $(cat "$RUNNER_TEMP/upstream-commit.txt")"
 
       - name: Rebuild WebM assets, config and preview
         env:
           FORCE: ${{ inputs.force && '1' || '0' }}
+          UPSTREAM_COMMIT: ${{ steps.upstream.outputs.revision }}
         run: |
           set -euo pipefail
           node convert.mjs sync
@@ -119,7 +122,7 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A pet.json config.jsonc webm mov preview .upstream-commit README.md
+          git add -A pet.json config.jsonc webm mov preview .assets.json .upstream-commit README.md
           if git diff --cached --quiet; then
             echo 'assets are already up to date'
             exit 0

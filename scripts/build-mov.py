@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
 import platform
 import shutil
 import subprocess
@@ -34,6 +35,9 @@ WEBM_DIR = ROOT / "webm"
 MOV_DIR = ROOT / "mov"
 CONFIG = ROOT / "config.jsonc"
 PET = ROOT / "pet.json"
+# Provenance manifest shared with convert.mjs. A MOV is stale when the recorded
+# digest of the WebM it was encoded from no longer matches webm/.
+ASSETS = ROOT / ".assets.json"
 FRAME_WIDTH = 640
 FRAME_HEIGHT = 360
 FRAME_RATE = 12
@@ -126,10 +130,30 @@ def validate_source(path: Path) -> int:
     return frames
 
 
-def needs_encoding(source: Path, target: Path) -> bool:
+def load_assets() -> dict:
+    if not ASSETS.is_file():
+        return {"upstream": None, "animations": {}}
+    return json.loads(ASSETS.read_text(encoding="utf-8"))
+
+
+def save_assets(assets: dict) -> None:
+    ASSETS.write_text(json.dumps(assets, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def needs_encoding(source: Path, target: Path, entry: dict | None) -> bool:
     if not target.is_file() or target.stat().st_size == 0:
         return True
-    return target.stat().st_mtime < source.stat().st_mtime
+    if entry is None:
+        return True
+    return entry.get("mov") != sha256(source)
 
 
 def encode(source: Path, target: Path) -> str:
@@ -188,16 +212,21 @@ def run(force: bool) -> None:
             fail(f"unknown animations: {', '.join(unknown)}")
         files = [path for path in files if path.stem in requested]
     MOV_DIR.mkdir(exist_ok=True)
+    assets = load_assets()
+    animations = assets.setdefault("animations", {})
     if not force:
-        files = [path for path in files if needs_encoding(path, MOV_DIR / f"{path.stem}.mov")]
+        files = [path for path in files
+                 if needs_encoding(path, MOV_DIR / f"{path.stem}.mov", animations.get(path.stem))]
     print(f"encoding {len(files)} of the committed animations", flush=True)
     if not files:
         return
     jobs = max(1, int(os.environ.get("MOV_JOBS", "0") or max(2, (os.cpu_count() or 4) // 2)))
     with ThreadPoolExecutor(max_workers=jobs) as executor:
-        futures = [executor.submit(encode, path, MOV_DIR / f"{path.stem}.mov") for path in files]
-        for index, future in enumerate(futures, start=1):
+        futures = [(executor.submit(encode, path, MOV_DIR / f"{path.stem}.mov"), path) for path in files]
+        for index, (future, path) in enumerate(futures, start=1):
             print(f"[{index}/{len(files)}] {future.result()}", flush=True)
+            animations.setdefault(path.stem, {})["mov"] = sha256(path)
+            save_assets(assets)
 
 
 def self_check() -> None:
