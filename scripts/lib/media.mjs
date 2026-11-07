@@ -56,13 +56,60 @@ export async function probe(path) {
   return JSON.parse(output.toString('utf8'))
 }
 
-// Whole atlas, tiled into its 8-column cells and emitted as a packed RGBA
-// frame sequence: untile is what turns the 8xR grid into 640x360 frames, a
+// Framing inside the 640x360 canvas.
+//
+// The host renders every DSH pet video into a fixed 16:9 box and hangs the
+// status bubble a few percent below the top edge of that box. Upstream frames
+// put the top of the head at ~10% of the canvas height, i.e. directly under the
+// bubble, which reads as "the bubble is sitting on the pet's head".
+//
+// So the whole frame - never a crop, every pixel survives - is scaled down and
+// re-padded lower in the canvas: the head lands at ~27% of the canvas instead
+// of ~10%. The canvas keeps its 640x360 size and 9/16 aspect, so the host's
+// window geometry is untouched while the bubble gains a clear band above the
+// character. FRAME_FIT applies to every frame, so frame-to-frame motion isnot
+// distorted; the uniforms keep the worst-case "content already touches the
+// canvas edge" actions inside the frame as well.
+export const FRAME_FIT = {
+  /** Scale applied to the full 640x360 frame; 1 = untouched upstream frame. */
+  scale: 0.8,
+  /** Transparent margin kept below the scaled frame (px); 0 grounds the feet. */
+  bottom: 0,
+  /**
+   * Bubble clearance. The host hangs the status bubble with
+   * `bottom: calc(100% - petSize * 0.108)`, i.e. its lower edge sits at
+   * 0.108 / (9/16) = 19.2% of the video box height - 69px on this canvas.
+   * Upstream puts the top of the head at 10% (36px), which the bubble covers,
+   * and some actions (raised hands, falling leaves, a jump) reach y=0.
+   * Anchoring the scaled frame to the bottom keeps the feet grounded and puts
+   * even those worst-case frames at 72px - just below the 69px bubble line -
+   * while the character shrinks by the same 0.8 factor. pet.json `size` is
+   * raised to 265 so the character keeps its previous on-screen height.
+   */
+  bubbleline: Math.round(0.108 / (9 / 16) * FRAME_HEIGHT),
+}
+
+/** ffmpeg filter that tiles the atlas and re-frames it inside the canvas. */
+export function sheetFilter(rows) {
+  const width = Math.round((FRAME_WIDTH * FRAME_FIT.scale) / 2) * 2
+  const height = Math.round((FRAME_HEIGHT * FRAME_FIT.scale) / 2) * 2
+  const x = Math.floor((FRAME_WIDTH - width) / 2)
+  const y = FRAME_HEIGHT - height - FRAME_FIT.bottom
+  return [
+    `untile=8x${rows}`,
+    'format=rgba',
+    `scale=${width}:${height}:flags=lanczos`,
+    `pad=${FRAME_WIDTH}:${FRAME_HEIGHT}:${x}:${y}:color=black@0`,
+  ].join(',')
+}
+
+// Whole atlas, tiled into its 8-column cells, re-framed and emitted as a packed
+// RGBA frame sequence: untile is what turns the 8xR grid into 640x360 frames, a
 // plain byte slice of the atlas would cut across atlas rows.
 export async function decodeSheet(sheet, rows) {
   return runCapture(ffmpegPath(), [
     '-hide_banner', '-loglevel', 'error', '-nostdin',
-    '-i', sheet, '-vf', `untile=8x${rows}`, '-fps_mode', 'passthrough',
+    '-i', sheet, '-vf', sheetFilter(rows), '-fps_mode', 'passthrough',
     '-f', 'rawvideo', '-pix_fmt', 'rgba', '-',
   ], `decode ${sheet}`)
 }
